@@ -935,6 +935,62 @@ func (a *Service) ExecuteIdempotent(key, command, aggregate, requestID string, r
 func (a *Service) ListEvents() []domain.AuditEvent {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	events := a.store.Snapshot().Events
-	return events
+	src := a.store.Snapshot().Events
+	out := make([]domain.AuditEvent, len(src))
+	for i := range src {
+		out[i] = src[i]
+		out[i].Data = cloneEventData(src[i].Data)
+	}
+	return out
+}
+
+// cloneEventData returns a deep copy of an audit event's data map so that
+// callers mutating query results cannot affect the persisted events. Nested
+// reference types (maps and slices) are copied recursively.
+func cloneEventData(in map[string]any) map[string]any {
+	if in == nil {
+		return nil
+	}
+	out := make(map[string]any, len(in))
+	for k, v := range in {
+		out[k] = deepCopyAny(v)
+	}
+	return out
+}
+
+func deepCopyAny(v any) any {
+	switch val := v.(type) {
+	case map[string]any:
+		return cloneEventData(val)
+	case []any:
+		cp := make([]any, len(val))
+		for i := range val {
+			cp[i] = deepCopyAny(val[i])
+		}
+		return cp
+	case []string:
+		cp := make([]string, len(val))
+		copy(cp, val)
+		return cp
+	case []int:
+		cp := make([]int, len(val))
+		copy(cp, val)
+		return cp
+	case []int64:
+		cp := make([]int64, len(val))
+		copy(cp, val)
+		return cp
+	case []float64:
+		cp := make([]float64, len(val))
+		copy(cp, val)
+		return cp
+	case []bool:
+		cp := make([]bool, len(val))
+		copy(cp, val)
+		return cp
+	default:
+		// Value types (strings, numbers, booleans, time.Time and struct
+		// snapshots) are copied by value when the map entry is assigned.
+		return v
+	}
 }
