@@ -926,6 +926,7 @@ func (a *Service) ExecuteIdempotentContext(ctx context.Context, key, command, ag
 	}
 	select {
 	case <-ctx.Done():
+		_ = a.store.DeleteIdempotencyRecord(key)
 		return nil, status, requestID, fmt.Errorf("执行幂等命令: %w", ctx.Err())
 	default:
 	}
