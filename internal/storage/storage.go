@@ -39,6 +39,14 @@ func (s *Store) Commit(typ, agg, actor string, data map[string]any) error {
 func (s *Store) CommitEvent(typ, agg, actor string, data map[string]any) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// Capture the in-memory commit state before mutation so we can roll back
+	// (seq, prevHash and the events slice) if any persistence step fails.
+	// Truncating back to its pre-call length drops the tentatively appended
+	// event without invalidating slices held by earlier Snapshot() callers,
+	// whose length/capacity is captured by value at snapshot time.
+	prevSeq := s.seq
+	prevPrevHash := s.prevHash
+	prevEventsLen := len(s.state.Events)
 	s.seq++
 	e := domain.AuditEvent{ID: fmt.Sprintf("evt-%d", s.seq), Type: typ, AggregateID: agg, At: time.Now().UTC(), Actor: actor, Data: data, Sequence: s.seq, PrevHash: s.prevHash, SchemaVersion: 1}
 	raw, _ := json.Marshal(e)
@@ -47,6 +55,14 @@ func (s *Store) CommitEvent(typ, agg, actor string, data map[string]any) (string
 	s.prevHash = e.Hash
 	s.state.Events = append(s.state.Events, e)
 	if err := s.persistLocked(); err != nil {
+		// Restore the commit state to its pre-call value so a retry after the
+		// resource outage regenerates the same sequence number and prevHash
+		// instead of advancing past the never-committed event. Truncating the
+		// slice header (rather than reslicing to cap) keeps Snapshot() copies
+		// made before this call unaffected.
+		s.seq = prevSeq
+		s.prevHash = prevPrevHash
+		s.state.Events = s.state.Events[:prevEventsLen]
 		return "", err
 	}
 	return e.ID, nil
