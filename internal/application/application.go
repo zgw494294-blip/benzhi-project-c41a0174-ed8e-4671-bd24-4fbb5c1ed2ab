@@ -512,6 +512,9 @@ func (a *Service) AssignDefects(id string, in BatchAssignmentInput) (*domain.Bat
 	if b.Status == "frozen" || b.Status == "permitted" {
 		return nil, domain.ErrState
 	}
+	if err := b.RequireWindow(a.now()); err != nil {
+		return nil, err
+	}
 	if in.ExpectedVersion > 0 && b.Version != in.ExpectedVersion {
 		return nil, domain.ErrConflict
 	}
@@ -592,6 +595,9 @@ func (a *Service) RectifyDefect(id string, in RectifyInput) (*domain.Defect, err
 		}
 		if in.ExpectedVersion > 0 && b.Version != in.ExpectedVersion {
 			return nil, domain.ErrConflict
+		}
+		if err := b.RequireWindow(a.now()); err != nil {
+			return nil, err
 		}
 	}
 	if err := d.Rectify(in.Measures, in.Responsible, in.EvidenceRefs, a.now()); err != nil {
