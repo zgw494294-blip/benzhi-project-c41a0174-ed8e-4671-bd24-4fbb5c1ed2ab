@@ -146,7 +146,7 @@ func (a *Service) GetBatch(id string) (*domain.Batch, error) {
 	if !ok {
 		return nil, domain.ErrNotFound
 	}
-	return b, nil
+	return cloneBatch(b), nil
 }
 func (a *Service) GetBatchView(id string) (*BatchView, error) {
 	a.mu.Lock()
@@ -160,8 +160,8 @@ func (a *Service) GetBatchView(id string) (*BatchView, error) {
 	if f := st.Facilities[b.FacilityID]; f != nil {
 		view.FacilityStatus = f.Status
 	}
-	if len(b.Assessments) > 0 {
-		view.LatestAssessment = &b.Assessments[len(b.Assessments)-1]
+	if len(view.Batch.Assessments) > 0 {
+		view.LatestAssessment = &view.Batch.Assessments[len(view.Batch.Assessments)-1]
 	}
 	now := a.now()
 	teams := map[string]*TeamSummary{}
@@ -219,14 +219,33 @@ func (a *Service) GetAssessment(id string, sequence int) (any, error) {
 		if len(b.Assessments) == 0 {
 			return map[string]any{"assessment": nil}, nil
 		}
-		return b.Assessments[len(b.Assessments)-1], nil
+		return cloneAssessment(b.Assessments[len(b.Assessments)-1]), nil
 	}
 	for _, s := range b.Assessments {
 		if s.Sequence == sequence {
-			return s, nil
+			return cloneAssessment(s), nil
 		}
 	}
 	return nil, domain.ErrNotFound
+}
+func cloneAssessment(s domain.AssessmentSnapshot) domain.AssessmentSnapshot {
+	c := s
+	if s.Rules != nil {
+		c.Rules = append([]domain.AssessmentRule(nil), s.Rules...)
+	}
+	if s.DefectIDs != nil {
+		c.DefectIDs = append([]string(nil), s.DefectIDs...)
+	}
+	if s.AutoClosedDefectIDs != nil {
+		c.AutoClosedDefectIDs = append([]string(nil), s.AutoClosedDefectIDs...)
+	}
+	if s.AutoClosedRevisions != nil {
+		c.AutoClosedRevisions = make(map[string]int, len(s.AutoClosedRevisions))
+		for k, v := range s.AutoClosedRevisions {
+			c.AutoClosedRevisions[k] = v
+		}
+	}
+	return c
 }
 func cloneBatch(b *domain.Batch) *domain.Batch {
 	if b == nil {
