@@ -912,7 +912,7 @@ func (a *Service) ExecuteIdempotent(key, command, aggregate, requestID string, r
 	raw, _ := json.Marshal(request)
 	sum := sha256.Sum256(raw)
 	hash := hex.EncodeToString(sum[:])
-	cacheKey := command + ":" + hash
+	cacheKey := key + ":" + command + ":" + hash
 	if cached, ok := a.idempotencyResultCache[cacheKey]; ok {
 		var out any
 		_ = json.Unmarshal(cached.Result, &out)
