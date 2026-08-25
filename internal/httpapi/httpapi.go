@@ -12,11 +12,14 @@ import (
 )
 
 type API struct {
-	app      *application.Service
-	requests uint64
+	app              *application.Service
+	requests         uint64
+	responseEnvelope map[string]any
 }
 
-func New(app *application.Service) *API                         { return &API{app: app} }
+func New(app *application.Service) *API {
+	return &API{app: app, responseEnvelope: make(map[string]any)}
+}
 func (a *API) Handler() http.Handler                            { return http.HandlerFunc(a.serve) }
 func (a *API) ServeHTTP(w http.ResponseWriter, r *http.Request) { a.serve(w, r) }
 func (a *API) serve(w http.ResponseWriter, r *http.Request) {
@@ -234,16 +237,23 @@ func (a *API) serve(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Request-ID", responseID)
 	if err != nil {
 		status = mapErr(err)
-		w.WriteHeader(status)
-		body := map[string]any{"requestID": responseID, "error": err.Error()}
+		a.responseEnvelope["requestID"] = responseID
+		a.responseEnvelope["error"] = err.Error()
+		delete(a.responseEnvelope, "data")
+		delete(a.responseEnvelope, "validationReport")
 		var validation *domain.ValidationError
 		if errors.As(err, &validation) {
-			body["validationReport"] = validation.Report
+			a.responseEnvelope["validationReport"] = validation.Report
 		}
-		_ = json.NewEncoder(w).Encode(body)
+		w.WriteHeader(status)
+		_ = json.NewEncoder(w).Encode(a.responseEnvelope)
 		return
 	}
+	a.responseEnvelope["requestID"] = responseID
+	a.responseEnvelope["data"] = out
+	delete(a.responseEnvelope, "error")
+	delete(a.responseEnvelope, "validationReport")
 	w.WriteHeader(status)
 	w.Header().Set("X-Request-ID", responseID)
-	_ = json.NewEncoder(w).Encode(map[string]any{"requestID": responseID, "data": out})
+	_ = json.NewEncoder(w).Encode(a.responseEnvelope)
 }
