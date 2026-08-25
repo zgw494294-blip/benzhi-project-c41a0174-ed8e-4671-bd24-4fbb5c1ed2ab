@@ -14,13 +14,16 @@ import (
 )
 
 type Service struct {
-	store  *storage.Store
-	mu     sync.Mutex
-	idemMu sync.Mutex
-	now    func() time.Time
+	store          *storage.Store
+	mu             sync.Mutex
+	idemMu         sync.Mutex
+	batchViewCache map[string]*BatchView
+	now            func() time.Time
 }
 
-func New(s *storage.Store) *Service { return &Service{store: s, now: time.Now} }
+func New(s *storage.Store) *Service {
+	return &Service{store: s, batchViewCache: map[string]*BatchView{}, now: time.Now}
+}
 
 func (a *Service) CreateFacility(in FacilityInput, idem string) (*domain.Facility, error) {
 	a.mu.Lock()
@@ -156,6 +159,9 @@ func (a *Service) GetBatchView(id string) (*BatchView, error) {
 	if !ok {
 		return nil, domain.ErrNotFound
 	}
+	if cached, ok := a.batchViewCache[id]; ok {
+		return cloneBatchView(cached), nil
+	}
 	view := &BatchView{Batch: cloneBatch(b), Defects: make([]DefectView, 0, len(b.DefectIDs))}
 	if f := st.Facilities[b.FacilityID]; f != nil {
 		view.FacilityStatus = f.Status
@@ -204,7 +210,18 @@ func (a *Service) GetBatchView(id string) (*BatchView, error) {
 		view.TeamSummary = append(view.TeamSummary, *s)
 	}
 	sort.Slice(view.TeamSummary, func(i, j int) bool { return view.TeamSummary[i].MaintenanceTeam < view.TeamSummary[j].MaintenanceTeam })
+	a.batchViewCache[id] = cloneBatchView(view)
 	return view, nil
+}
+
+func cloneBatchView(view *BatchView) *BatchView {
+	if view == nil {
+		return nil
+	}
+	raw, _ := json.Marshal(view)
+	var clone BatchView
+	_ = json.Unmarshal(raw, &clone)
+	return &clone
 }
 
 func (a *Service) GetAssessment(id string, sequence int) (any, error) {
