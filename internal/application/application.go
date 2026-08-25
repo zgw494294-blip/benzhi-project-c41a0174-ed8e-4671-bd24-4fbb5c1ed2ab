@@ -936,5 +936,5 @@ func (a *Service) ListEvents() []domain.AuditEvent {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	events := a.store.Snapshot().Events
-	return append([]domain.AuditEvent(nil), events...)
+	return events
 }
