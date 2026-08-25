@@ -33,7 +33,7 @@ func (a *API) serve(w http.ResponseWriter, r *http.Request) {
 	var err error
 	status := http.StatusOK
 	run := func(command, aggregate string, request any, success int, fn func() (any, error)) {
-		out, status, responseID, err = a.app.ExecuteIdempotent(r.Header.Get("Idempotency-Key"), command, aggregate, responseID, request, success, fn)
+		out, status, responseID, err = a.app.ExecuteIdempotentContext(r.Context(), r.Header.Get("Idempotency-Key"), command, aggregate, responseID, request, success, fn)
 	}
 	if len(parts) == 2 && parts[0] == "facilities" && parts[1] == "" {
 		_ = parts

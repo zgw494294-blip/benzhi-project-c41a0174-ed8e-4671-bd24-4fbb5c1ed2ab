@@ -3,6 +3,7 @@ package application
 import (
 	"cityflood/internal/domain"
 	"cityflood/internal/storage"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -896,6 +897,9 @@ func (a *Service) GetIdempotency(key string) (storage.IdempotencyRecord, error) 
 	return r, nil
 }
 func (a *Service) ExecuteIdempotent(key, command, aggregate, requestID string, request any, status int, fn func() (any, error)) (any, int, string, error) {
+	return a.ExecuteIdempotentContext(context.Background(), key, command, aggregate, requestID, request, status, fn)
+}
+func (a *Service) ExecuteIdempotentContext(ctx context.Context, key, command, aggregate, requestID string, request any, status int, fn func() (any, error)) (any, int, string, error) {
 	if strings.TrimSpace(key) == "" {
 		out, err := fn()
 		return out, status, requestID, err
@@ -919,6 +923,11 @@ func (a *Service) ExecuteIdempotent(key, command, aggregate, requestID string, r
 	pending := storage.IdempotencyRecord{Key: key, Command: command, AggregateID: aggregate, RequestHash: hash, Status: "pending", HTTPStatus: status, RequestID: requestID}
 	if err := a.store.PutIdempotencyRecord(pending); err != nil {
 		return nil, status, requestID, err
+	}
+	select {
+	case <-ctx.Done():
+		return nil, status, requestID, fmt.Errorf("执行幂等命令: %w", ctx.Err())
+	default:
 	}
 	out, err := fn()
 	if err != nil {
