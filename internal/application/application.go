@@ -14,13 +14,20 @@ import (
 )
 
 type Service struct {
-	store  *storage.Store
-	mu     sync.Mutex
-	idemMu sync.Mutex
-	now    func() time.Time
+	store                  *storage.Store
+	mu                     sync.Mutex
+	idemMu                 sync.Mutex
+	idempotencyResultCache map[string]storage.IdempotencyRecord
+	now                    func() time.Time
 }
 
-func New(s *storage.Store) *Service { return &Service{store: s, now: time.Now} }
+func New(s *storage.Store) *Service {
+	return &Service{
+		store:                  s,
+		idempotencyResultCache: make(map[string]storage.IdempotencyRecord),
+		now:                    time.Now,
+	}
+}
 
 func (a *Service) CreateFacility(in FacilityInput, idem string) (*domain.Facility, error) {
 	a.mu.Lock()
@@ -905,6 +912,12 @@ func (a *Service) ExecuteIdempotent(key, command, aggregate, requestID string, r
 	raw, _ := json.Marshal(request)
 	sum := sha256.Sum256(raw)
 	hash := hex.EncodeToString(sum[:])
+	cacheKey := command + ":" + hash
+	if cached, ok := a.idempotencyResultCache[cacheKey]; ok {
+		var out any
+		_ = json.Unmarshal(cached.Result, &out)
+		return out, cached.HTTPStatus, cached.RequestID, nil
+	}
 	if old, ok := a.store.GetIdempotencyRecord(key); ok {
 		if old.RequestHash != hash || old.Command != command {
 			return nil, 409, requestID, fmt.Errorf("%w: Idempotency-Key请求摘要冲突", domain.ErrConflict)
@@ -930,6 +943,7 @@ func (a *Service) ExecuteIdempotent(key, command, aggregate, requestID string, r
 	if err := a.store.PutIdempotencyRecord(rec); err != nil {
 		return nil, status, requestID, err
 	}
+	a.idempotencyResultCache[cacheKey] = rec
 	return out, status, requestID, nil
 }
 func (a *Service) ListEvents() []domain.AuditEvent {
