@@ -901,11 +901,11 @@ func (a *Service) ExecuteIdempotent(key, command, aggregate, requestID string, r
 		return out, status, requestID, err
 	}
 	a.idemMu.Lock()
-	defer a.idemMu.Unlock()
 	raw, _ := json.Marshal(request)
 	sum := sha256.Sum256(raw)
 	hash := hex.EncodeToString(sum[:])
 	if old, ok := a.store.GetIdempotencyRecord(key); ok {
+		a.idemMu.Unlock()
 		if old.RequestHash != hash || old.Command != command {
 			return nil, 409, requestID, fmt.Errorf("%w: Idempotency-Key请求摘要冲突", domain.ErrConflict)
 		}
@@ -916,13 +916,17 @@ func (a *Service) ExecuteIdempotent(key, command, aggregate, requestID string, r
 		_ = json.Unmarshal(old.Result, &out)
 		return out, old.HTTPStatus, old.RequestID, nil
 	}
-	pending := storage.IdempotencyRecord{Key: key, Command: command, AggregateID: aggregate, RequestHash: hash, Status: "pending", HTTPStatus: status, RequestID: requestID}
-	if err := a.store.PutIdempotencyRecord(pending); err != nil {
-		return nil, status, requestID, err
-	}
+	a.idemMu.Unlock()
+
 	out, err := fn()
 	if err != nil {
-		_ = a.store.DeleteIdempotencyRecord(key)
+		return nil, status, requestID, err
+	}
+
+	a.idemMu.Lock()
+	defer a.idemMu.Unlock()
+	pending := storage.IdempotencyRecord{Key: key, Command: command, AggregateID: aggregate, RequestHash: hash, Status: "pending", HTTPStatus: status, RequestID: requestID}
+	if err := a.store.PutIdempotencyRecord(pending); err != nil {
 		return nil, status, requestID, err
 	}
 	result, _ := json.Marshal(out)
