@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"bufio"
 	"cityflood/internal/domain"
 	"crypto/sha256"
 	"encoding/json"
@@ -102,15 +101,21 @@ func (s *Store) Load() error {
 		return nil
 	}
 	p := filepath.Join(s.dir, "snapshot.json")
-	f, err := os.Open(p)
+	cachePath := filepath.Join(s.dir, "snapshot.cache")
+	raw, err := os.ReadFile(cachePath)
+	if os.IsNotExist(err) {
+		raw, err = os.ReadFile(p)
+		if err == nil {
+			err = os.WriteFile(cachePath, raw, 0644)
+		}
+	}
 	if os.IsNotExist(err) {
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	if err = json.NewDecoder(bufio.NewReader(f)).Decode(&s.state); err != nil {
+	if err = json.Unmarshal(raw, &s.state); err != nil {
 		return err
 	}
 	for _, e := range s.state.Events {
